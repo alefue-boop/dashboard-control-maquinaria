@@ -7,31 +7,13 @@ st.set_page_config(page_title="Control y Gestión de Maquinaria", layout="wide")
 
 st.markdown("""
     <style>
-    /* Tipografía corporativa Times New Roman */
     html, body, [class*="css"], [class*="st-"] {
         font-family: 'Times New Roman', Times, serif !important;
     }
-    
-    /* Títulos en color Burdeo */
-    h1, h2, h3, h4, h5, h6 {
-        color: #800020 !important; 
-    }
-    
-    /* Valores de KPIs en Verde Corporativo */
-    [data-testid="stMetricValue"] {
-        color: #2E7D32 !important; 
-    }
-    
-    /* Etiquetas de KPIs en Gris oscuro */
-    [data-testid="stMetricLabel"] {
-        color: #555555 !important;
-        font-weight: bold;
-    }
-    
-    /* Fondo barra lateral Gris claro */
-    [data-testid="stSidebar"] {
-        background-color: #F4F6F6 !important;
-    }
+    h1, h2, h3, h4, h5, h6 { color: #800020 !important; }
+    [data-testid="stMetricValue"] { color: #2E7D32 !important; }
+    [data-testid="stMetricLabel"] { color: #555555 !important; font-weight: bold; }
+    [data-testid="stSidebar"] { background-color: #F4F6F6 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,7 +25,6 @@ st.title("🚜 Dashboard de Control y Gestión de Maquinaria")
 @st.cache_data
 def cargar_datos(report_file, empleados_file, estructura_file):
     
-    # Lector estándar para Reportes y Empleados
     def procesar_archivo(uploaded_file):
         nombre_archivo = uploaded_file.name.lower()
         if nombre_archivo.endswith('.csv'):
@@ -62,7 +43,6 @@ def cargar_datos(report_file, empleados_file, estructura_file):
         else:
             return pd.DataFrame()
 
-    # Lector especial para Estructura de Negocio (Salta las primeras 4 filas de encabezado inútil)
     def procesar_estructura(uploaded_file):
         nombre_archivo = uploaded_file.name.lower()
         if nombre_archivo.endswith('.csv'):
@@ -85,7 +65,6 @@ def cargar_datos(report_file, empleados_file, estructura_file):
     employees_df = procesar_archivo(empleados_file)
     estructura_df = procesar_estructura(estructura_file)
     
-    # 1er CRUCE: Reporte con Empleados (Limpieza de RUTs)
     if 'Operador' in report_df.columns:
         report_df['Operador_clean'] = report_df['Operador'].astype(str).str.replace('.', '', regex=False).str.strip().str.upper()
     else:
@@ -98,7 +77,7 @@ def cargar_datos(report_file, empleados_file, estructura_file):
     
     merged_df = pd.merge(report_df, employees_df, left_on='Operador_clean', right_on='RUT_clean', how='left')
     
-    # FORMATEO INTELIGENTE DE NOMBRES
+    # FORMATEO DE NOMBRE Y APELLIDO
     def formatear_nombre(nombre_crudo):
         if pd.isna(nombre_crudo) or str(nombre_crudo).strip() == "":
             return "Sin Registro"
@@ -111,23 +90,20 @@ def cargar_datos(report_file, empleados_file, estructura_file):
 
     if 'Nombre' in merged_df.columns:
         merged_df['Nombre'] = merged_df['Nombre'].apply(formatear_nombre)
+    else:
+        merged_df['Nombre'] = "Sin Registro"
     
-    # 2do CRUCE: Centro de Costo con Estructura de Negocio
+    # CRUCE DE UNIDAD DE NEGOCIO
     if 'Centro Costo' in merged_df.columns and 'Código' in estructura_df.columns and 'Descripción' in estructura_df.columns:
-        # Limpieza de códigos para el cruce exacto
         merged_df['Centro_Costo_clean'] = merged_df['Centro Costo'].astype(str).str.strip().str.upper()
         estructura_df['Código_clean'] = estructura_df['Código'].astype(str).str.strip().str.upper()
-        
-        # Cruce
         merged_df = pd.merge(merged_df, estructura_df[['Código_clean', 'Descripción']], left_on='Centro_Costo_clean', right_on='Código_clean', how='left')
         
-        # La Unidad de Negocio final será la Descripción real. Si no la encuentra, deja el código original.
         merged_df['Unidad_Negocio'] = merged_df['Descripción'].fillna(merged_df['Centro Costo'])
         merged_df['Unidad_Negocio'] = merged_df['Unidad_Negocio'].replace('NAN', 'Sin Unidad Asignada').replace('NaN', 'Sin Unidad Asignada')
     else:
         merged_df['Unidad_Negocio'] = merged_df['Centro Costo'] if 'Centro Costo' in merged_df.columns else 'Sin Unidad Asignada'
 
-    # Motor de estado de maquinaria
     def check_status(obs):
         if pd.isna(obs): return 'Sin observación'
         obs_lower = str(obs).lower()
@@ -143,12 +119,10 @@ def cargar_datos(report_file, empleados_file, estructura_file):
     else:
         merged_df['Estado_Equipo'] = 'Sin observación'
     
-    # Horas Efectivas
     hr_op1 = pd.to_numeric(merged_df['Hr. Operador 1'], errors='coerce').fillna(0) if 'Hr. Operador 1' in merged_df.columns else 0
     hr_op2 = pd.to_numeric(merged_df['Hr. Operador 2'], errors='coerce').fillna(0) if 'Hr. Operador 2' in merged_df.columns else 0
     merged_df['Horas_Efectivas'] = hr_op1 + hr_op2
     
-    # Fechas
     if 'Fecha reporte' in merged_df.columns:
         merged_df['Fecha reporte'] = pd.to_datetime(merged_df['Fecha reporte'], errors='coerce').dt.date
         
@@ -158,7 +132,7 @@ def cargar_datos(report_file, empleados_file, estructura_file):
 st.sidebar.header("Carga de Archivos")
 report_file = st.sidebar.file_uploader("1. Reporte de Maquinaria", type=['csv', 'xlsx'])
 empleados_file = st.sidebar.file_uploader("2. Base de Empleados", type=['csv', 'xlsx'])
-estructura_file = st.sidebar.file_uploader("3. Estructura de Negocio (Centros de Costo)", type=['csv', 'xlsx'])
+estructura_file = st.sidebar.file_uploader("3. Estructura de Negocio", type=['csv', 'xlsx'])
 
 if report_file and empleados_file and estructura_file:
     with st.spinner("Integrando bases de datos y procesando analítica corporativa..."):
@@ -176,7 +150,7 @@ if report_file and empleados_file and estructura_file:
     col1, col2, col3, col4 = st.columns(4)
     
     col1.metric("Total Equipos Distintos", df['Equipo'].nunique() if 'Equipo' in df.columns else 0)
-    col2.metric("Total Trabajadores Involucrados", df['Operador_clean'].nunique() if 'Operador_clean' in df.columns else 0)
+    col2.metric("Total Trabajadores Involucrados", df['Nombre'].nunique() if 'Nombre' in df.columns else 0)
     col3.metric("Total Horas Efectivas Trabajadas", f"{df['Horas_Efectivas'].sum():,.1f}" if 'Horas_Efectivas' in df.columns else "0")
     col4.metric("Días Efectivos Reportados", df['Fecha reporte'].nunique() if 'Fecha reporte' in df.columns else 0)
 
@@ -202,28 +176,29 @@ if report_file and empleados_file and estructura_file:
             fig_horas.update_traces(textposition='outside')
             st.plotly_chart(fig_horas, use_container_width=True)
 
-    # --- 6. MÓDULO DE FACTURACIÓN ---
+    # --- 6. MÓDULO DE FACTURACIÓN (CORREGIDO CON NOMBRE DE TRABAJADOR) ---
     st.markdown("---")
-    st.subheader("🧾 Resumen para Facturación: Días Trabajados vs Inactivos por Obra")
+    st.subheader("🧾 Resumen para Facturación: Días Trabajados vs Inactivos")
     
     if 'Equipo' in df.columns and 'Fecha reporte' in df.columns:
-        df_trabajados = df[df['Horas_Efectivas'] > 0].groupby(['Unidad_Negocio', 'Equipo'])['Fecha reporte'].nunique().reset_index()
+        # AHORA AGRUPAMOS POR UNIDAD, EQUIPO Y NOMBRE DEL TRABAJADOR
+        df_trabajados = df[df['Horas_Efectivas'] > 0].groupby(['Unidad_Negocio', 'Equipo', 'Nombre'])['Fecha reporte'].nunique().reset_index()
         df_trabajados.rename(columns={'Fecha reporte': 'Días Trabajados (Con Horas)'}, inplace=True)
         
-        df_inactivos = df[df['Horas_Efectivas'] == 0].groupby(['Unidad_Negocio', 'Equipo'])['Fecha reporte'].nunique().reset_index()
+        df_inactivos = df[df['Horas_Efectivas'] == 0].groupby(['Unidad_Negocio', 'Equipo', 'Nombre'])['Fecha reporte'].nunique().reset_index()
         df_inactivos.rename(columns={'Fecha reporte': 'Total Días Inactivos (0 Horas)'}, inplace=True)
         
-        df_motivos = df[df['Horas_Efectivas'] == 0].groupby(['Unidad_Negocio', 'Equipo', 'Estado_Equipo'])['Fecha reporte'].nunique().unstack(fill_value=0).reset_index()
+        df_motivos = df[df['Horas_Efectivas'] == 0].groupby(['Unidad_Negocio', 'Equipo', 'Nombre', 'Estado_Equipo'])['Fecha reporte'].nunique().unstack(fill_value=0).reset_index()
         
-        resumen_facturacion = pd.merge(df_trabajados, df_inactivos, on=['Unidad_Negocio', 'Equipo'], how='outer').fillna(0)
+        resumen_facturacion = pd.merge(df_trabajados, df_inactivos, on=['Unidad_Negocio', 'Equipo', 'Nombre'], how='outer').fillna(0)
         if not df_motivos.empty:
-            resumen_facturacion = pd.merge(resumen_facturacion, df_motivos, on=['Unidad_Negocio', 'Equipo'], how='outer').fillna(0)
+            resumen_facturacion = pd.merge(resumen_facturacion, df_motivos, on=['Unidad_Negocio', 'Equipo', 'Nombre'], how='outer').fillna(0)
             
         for col in resumen_facturacion.columns:
-            if col not in ['Unidad_Negocio', 'Equipo']:
+            if col not in ['Unidad_Negocio', 'Equipo', 'Nombre']:
                 resumen_facturacion[col] = resumen_facturacion[col].astype(int)
                 
-        resumen_facturacion.insert(2, 'Total Días Auditados', resumen_facturacion['Días Trabajados (Con Horas)'] + resumen_facturacion['Total Días Inactivos (0 Horas)'])
+        resumen_facturacion.insert(3, 'Total Días Auditados', resumen_facturacion['Días Trabajados (Con Horas)'] + resumen_facturacion['Total Días Inactivos (0 Horas)'])
         
         st.dataframe(resumen_facturacion.sort_values(by=['Unidad_Negocio', 'Equipo']), use_container_width=True)
         
@@ -231,7 +206,7 @@ if report_file and empleados_file and estructura_file:
         st.download_button(
             label="📥 Descargar Resumen para Facturación",
             data=csv_facturacion,
-            file_name='resumen_facturacion_maquinaria_por_obra.csv',
+            file_name='resumen_facturacion_maquinaria.csv',
             mime='text/csv',
         )
 
@@ -294,24 +269,11 @@ if report_file and empleados_file and estructura_file:
                 st.download_button(
                     label="📥 Descargar Reporte de Auditoría",
                     data=csv_auditoria,
-                    file_name='auditoria_combustible_camionetas.csv',
+                    file_name='auditoria_combustible_camionetas_por_unidad.csv',
                     mime='text/csv',
                 )
             else:
                 st.success("Toda la flota CD opera conforme a los parámetros de auditoría.")
-
-            st.markdown("**Análisis Gráfico: Recorrido vs Consumo (Agrupado por Camioneta y Obra)**")
-            resumen_grafico = df_cd.groupby(['Unidad_Negocio', 'Equipo']).agg({
-                'KM_Recorridos': 'sum',
-                'Cantidad (Ingreso Combustible)': 'sum'
-            }).reset_index()
-            
-            fig_scatter = px.scatter(resumen_grafico, x='KM_Recorridos', y='Cantidad (Ingreso Combustible)', 
-                                     text='Equipo', size='Cantidad (Ingreso Combustible)', color='Unidad_Negocio',
-                                     title='Relación KM Recorridos vs Litros Cargados (Por Obra)',
-                                     color_discrete_sequence=colores_corporativos)
-            fig_scatter.update_traces(textposition='top center')
-            st.plotly_chart(fig_scatter, use_container_width=True)
 
         else:
             st.info("No hay registros de camionetas ('CD') procesables en la data subida.")
