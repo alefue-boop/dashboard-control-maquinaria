@@ -129,40 +129,32 @@ if report_file and empleados_file:
             fig_horas.update_traces(textposition='outside')
             st.plotly_chart(fig_horas, use_container_width=True)
 
-    # --- NUEVA SECCIÓN: RESUMEN PARA FACTURACIÓN ---
+    # --- SECCIÓN: RESUMEN PARA FACTURACIÓN ---
     st.markdown("---")
     st.subheader("🧾 Resumen para Facturación: Días Trabajados vs Inactivos")
     
     if 'Equipo' in df.columns and 'Fecha reporte' in df.columns:
-        # 1. Calcular días efectivos (horas > 0)
         df_trabajados = df[df['Horas_Efectivas'] > 0].groupby('Equipo')['Fecha reporte'].nunique().reset_index()
         df_trabajados.rename(columns={'Fecha reporte': 'Días Trabajados'}, inplace=True)
         
-        # 2. Calcular días inactivos totales (horas == 0)
         df_inactivos_totales = df[df['Horas_Efectivas'] == 0].groupby('Equipo')['Fecha reporte'].nunique().reset_index()
         df_inactivos_totales.rename(columns={'Fecha reporte': 'Total Días Inactivos'}, inplace=True)
         
-        # 3. Desglosar los motivos de inactividad convirtiéndolos en columnas
         df_motivos = df[df['Horas_Efectivas'] == 0].groupby(['Equipo', 'Estado_Equipo'])['Fecha reporte'].nunique().unstack(fill_value=0).reset_index()
         
-        # 4. Unir toda la información
         resumen_facturacion = pd.merge(df_trabajados, df_inactivos_totales, on='Equipo', how='outer').fillna(0)
         
         if not df_motivos.empty:
             resumen_facturacion = pd.merge(resumen_facturacion, df_motivos, on='Equipo', how='outer').fillna(0)
             
-        # 5. Formatear los números para que no salgan con decimales (.0)
         for col in resumen_facturacion.columns:
             if col != 'Equipo':
                 resumen_facturacion[col] = resumen_facturacion[col].astype(int)
                 
-        # Calcular el total de días evaluados por máquina
         resumen_facturacion.insert(1, 'Total Días Mes', resumen_facturacion['Días Trabajados'] + resumen_facturacion['Total Días Inactivos'])
         
-        # Mostrar la tabla en la app
         st.dataframe(resumen_facturacion, use_container_width=True)
         
-        # Botón para descargar a Excel/CSV
         csv_facturacion = resumen_facturacion.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Descargar Resumen para Facturación (CSV)",
@@ -171,9 +163,106 @@ if report_file and empleados_file:
             mime='text/csv',
         )
 
+    # --- NUEVA SECCIÓN: AUDITORÍA DE CAMIONETAS (CD) Y COMBUSTIBLE ---
+    st.markdown("---")
+    st.subheader("⛽ Auditoría de Combustible y Uso de Camionetas (CD)")
+
+    if 'Equipo' in df.columns:
+        # Filtrar solo equipos que empiecen o contengan "CD"
+        df_cd = df[df['Equipo'].astype(str).str.contains('CD', na=False, case=False)].copy()
+
+        if not df_cd.empty:
+            # Asegurar que las columnas clave para esta auditoría existan y sean numéricas
+            cols_necesarias = ['KM. Inicial', 'KM. Final', 'Cantidad (Ingreso Combustible)']
+            for col in cols_necesarias:
+                if col in df_cd.columns:
+                    df_cd[col] = pd.to_numeric(df_cd[col], errors='coerce').fillna(0)
+                else:
+                    df_cd[col] = 0
+
+            # Cálculos de auditoría
+            df_cd['KM_Recorridos'] = df_cd['KM. Final'] - df_cd['KM. Inicial']
+            
+            # Rendimiento diario referencial
+            df_cd['Rendimiento (KM/L)'] = df_cd.apply(
+                lambda row: row['KM_Recorridos'] / row['Cantidad (Ingreso Combustible)'] 
+                if row['Cantidad (Ingreso Combustible)'] > 0 else 0, 
+                axis=1
+            )
+
+            # Algoritmo de Detección de Anomalías
+            def clasificar_anomalia(row):
+                anomalias = []
+                if row['KM_Recorridos'] < 0:
+                    anomalias.append("Error Odómetro (KM Final < Inicial)")
+                if row['KM_Recorridos'] > 500:
+                    anomalias.append("Exceso KM Diario (>500 km)")
+                if row['Cantidad (Ingreso Combustible)'] > 0 and row['KM_Recorridos'] == 0:
+                    anomalias.append("Carga combustible sin movimiento")
+                if row['Cantidad (Ingreso Combustible)'] > 0 and row['KM_Recorridos'] > 0:
+                    if row['Rendimiento (KM/L)'] < 5:
+                        anomalias.append("Rendimiento crítico (< 5 KM/L)")
+                    elif row['Rendimiento (KM/L)'] > 15:
+                        anomalias.append("Rendimiento irreal (> 15 KM/L)")
+                if row['KM. Inicial'] == 0 and row['KM. Final'] == 0 and row['Horas_Efectivas'] > 0:
+                    anomalias.append("Trabajó sin registrar KM")
+                
+                return " | ".join(anomalias) if anomalias else "OK"
+
+            df_cd['Alerta_Auditoria'] = df_cd.apply(clasificar_anomalia, axis=1)
+
+            # Mostrar KPIs de Camionetas
+            st.markdown("##### Indicadores Globales de la Flota CD")
+            c_cd1, c_cd2, c_cd3, c_cd4 = st.columns(4)
+            c_cd1.metric("Total Camionetas", df_cd['Equipo'].nunique())
+            c_cd2.metric("Total KM Recorridos", f"{df_cd['KM_Recorridos'].sum():,.0f}")
+            c_cd3.metric("Total Litros Combustible", f"{df_cd['Cantidad (Ingreso Combustible)'].sum():,.1f}")
+            
+            total_km = df_cd['KM_Recorridos'].sum()
+            total_lts = df_cd['Cantidad (Ingreso Combustible)'].sum()
+            rendimiento_global = total_km / total_lts if total_lts > 0 else 0
+            c_cd4.metric("Rendimiento Global Flota (KM/L)", f"{rendimiento_global:.1f}")
+
+            # Filtrar e imprimir las anomalías
+            df_anomalias = df_cd[df_cd['Alerta_Auditoria'] != "OK"]
+            
+            st.markdown(f"##### ⚠️ Alertas Detectadas ({len(df_anomalias)} registros anómalos)")
+            
+            if not df_anomalias.empty:
+                cols_mostrar = ['Fecha reporte', 'Equipo', 'Operador_clean', 'Nombre', 'KM. Inicial', 'KM. Final', 'KM_Recorridos', 'Cantidad (Ingreso Combustible)', 'Rendimiento (KM/L)', 'Alerta_Auditoria']
+                cols_mostrar = [c for c in cols_mostrar if c in df_anomalias.columns]
+                
+                st.dataframe(df_anomalias[cols_mostrar].sort_values('Fecha reporte', ascending=False), use_container_width=True)
+                
+                csv_auditoria = df_anomalias[cols_mostrar].to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Descargar Reporte de Anomalías (CSV)",
+                    data=csv_auditoria,
+                    file_name='auditoria_combustible_camionetas.csv',
+                    mime='text/csv',
+                )
+            else:
+                st.success("¡Excelente! No se detectaron anomalías en las camionetas bajo los parámetros actuales.")
+
+            # Gráfico Comparativo
+            st.markdown("##### Análisis Gráfico: Recorrido vs Consumo de Combustible por Camioneta")
+            resumen_grafico = df_cd.groupby('Equipo').agg({
+                'KM_Recorridos': 'sum',
+                'Cantidad (Ingreso Combustible)': 'sum'
+            }).reset_index()
+            
+            fig_scatter = px.scatter(resumen_grafico, x='KM_Recorridos', y='Cantidad (Ingreso Combustible)', 
+                                     text='Equipo', size='Cantidad (Ingreso Combustible)', color='Equipo',
+                                     title='Relación KM Recorridos vs Litros Cargados')
+            fig_scatter.update_traces(textposition='top center')
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
+        else:
+            st.info("No hay registros de camionetas ('CD') en este periodo para analizar combustible.")
+
     # Detalle de Trabajador vs Equipo
     st.markdown("---")
-    st.subheader("Detalle: ¿Qué trabajador está usando qué equipo?")
+    st.subheader("Detalle General: ¿Qué trabajador está usando qué equipo?")
     
     columnas_vista = ['Equipo', 'Estado_Equipo', 'RUT', 'Nombre', 'Cargo', 'Horas_Efectivas', 'Observaciones']
     if 'Nombre Centro Costo 1' in df.columns:
