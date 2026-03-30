@@ -6,11 +6,20 @@ import plotly.express as px
 st.set_page_config(page_title="Control y Gestión de Maquinaria", layout="wide")
 st.title("🚜 Dashboard de Control y Gestión de Maquinaria")
 
-# Función para cargar y unificar los datos
+# Función para cargar y unificar los datos (CON MANEJO DE ERROR DE CODIFICACIÓN)
 @st.cache_data
 def cargar_datos(report_file, empleados_file):
-    report_df = pd.read_csv(report_file)
-    employees_df = pd.read_csv(empleados_file)
+    # Intentar leer el reporte con utf-8, si falla por caracteres especiales (tildes, ñ), usar latin-1
+    try:
+        report_df = pd.read_csv(report_file, encoding='utf-8')
+    except UnicodeDecodeError:
+        report_df = pd.read_csv(report_file, encoding='latin-1')
+        
+    # Hacer lo mismo con la base de empleados
+    try:
+        employees_df = pd.read_csv(empleados_file, encoding='utf-8')
+    except UnicodeDecodeError:
+        employees_df = pd.read_csv(empleados_file, encoding='latin-1')
     
     # Limpieza de RUT para hacer el cruce exacto
     report_df['Operador_clean'] = report_df['Operador'].astype(str).str.replace('.', '', regex=False).str.upper()
@@ -50,13 +59,15 @@ if report_file and empleados_file:
         df = cargar_datos(report_file, empleados_file)
         
     st.sidebar.header("Filtros")
-    # Filtro por Unidad de Negocio (Centro Costo 1 de la BD empleados o Consorcio)
-    centros_costo = df['Nombre Centro Costo 1'].dropna().unique().tolist()
-    centro_seleccionado = st.sidebar.multiselect("Unidad de Negocio (Centro de Costo):", centros_costo, default=centros_costo)
     
-    # Aplicar filtros
-    if centro_seleccionado:
-        df = df[df['Nombre Centro Costo 1'].isin(centro_seleccionado)]
+    # Filtro por Unidad de Negocio (Centro Costo 1 de la BD empleados)
+    if 'Nombre Centro Costo 1' in df.columns:
+        centros_costo = df['Nombre Centro Costo 1'].dropna().unique().tolist()
+        centro_seleccionado = st.sidebar.multiselect("Unidad de Negocio (Centro de Costo):", centros_costo, default=centros_costo)
+        
+        # Aplicar filtros
+        if centro_seleccionado:
+            df = df[df['Nombre Centro Costo 1'].isin(centro_seleccionado)]
         
     st.subheader("Resumen de KPIs")
     col1, col2, col3, col4 = st.columns(4)
@@ -85,8 +96,15 @@ if report_file and empleados_file:
 
     # Detalle de Trabajador vs Equipo
     st.subheader("Detalle: ¿Qué trabajador está usando qué equipo?")
-    columnas_vista = ['Equipo', 'Estado_Equipo', 'RUT', 'Nombre', 'Cargo', 'Horas_Efectivas', 'Nombre Centro Costo 1', 'Observaciones']
-    st.dataframe(df[columnas_vista].sort_values(by=['Equipo']), use_container_width=True)
+    
+    # Asegurarnos de que las columnas existan antes de mostrarlas para evitar errores
+    columnas_vista = ['Equipo', 'Estado_Equipo', 'RUT', 'Nombre', 'Cargo', 'Horas_Efectivas', 'Observaciones']
+    if 'Nombre Centro Costo 1' in df.columns:
+        columnas_vista.insert(6, 'Nombre Centro Costo 1')
+        
+    columnas_existentes = [col for col in columnas_vista if col in df.columns]
+    
+    st.dataframe(df[columnas_existentes].sort_values(by=['Equipo']), use_container_width=True)
     
 else:
     st.info("Por favor, sube ambos archivos en el panel izquierdo para comenzar el análisis y ver el Dashboard.")
