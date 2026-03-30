@@ -1,0 +1,11 @@
+# Ignorar archivos de datos reales
+*.csv
+*.xls
+*.xlsx
+data/
+
+# Ignorar archivos temporales de Python y Streamlit
+__pycache__/
+.venv/
+env/
+.streamlit/
