@@ -54,7 +54,7 @@ def cargar_datos(report_file, empleados_file):
     def check_status(obs):
         if pd.isna(obs): return 'Sin observación'
         obs_lower = str(obs).lower()
-        if 'panne' in obs_lower or 'panna' in obs_lower: return 'Panne/Falla'
+        if 'panne' in obs_lower or 'panna' in obs_lower or 'falla' in obs_lower: return 'Panne/Falla'
         if 'revisión técnica' in obs_lower or 'revision tecnica' in obs_lower: return 'Revisión Técnica'
         if 'estacionada' in obs_lower or 'estacionado' in obs_lower: return 'Estacionada'
         if 'lluvia' in obs_lower: return 'Disponible por Lluvia'
@@ -71,7 +71,7 @@ def cargar_datos(report_file, empleados_file):
     hr_op2 = merged_df['Hr. Operador 2'].fillna(0) if 'Hr. Operador 2' in merged_df.columns else 0
     merged_df['Horas_Efectivas'] = hr_op1 + hr_op2
     
-    # Limpieza de fechas (Aquí estaba tu error de indentación)
+    # Limpieza de fechas
     if 'Fecha reporte' in merged_df.columns:
         merged_df['Fecha reporte'] = pd.to_datetime(merged_df['Fecha reporte'], errors='coerce')
         
@@ -129,10 +129,52 @@ if report_file and empleados_file:
             fig_horas.update_traces(textposition='outside')
             st.plotly_chart(fig_horas, use_container_width=True)
 
+    # --- NUEVA SECCIÓN: RESUMEN PARA FACTURACIÓN ---
+    st.markdown("---")
+    st.subheader("🧾 Resumen para Facturación: Días Trabajados vs Inactivos")
+    
+    if 'Equipo' in df.columns and 'Fecha reporte' in df.columns:
+        # 1. Calcular días efectivos (horas > 0)
+        df_trabajados = df[df['Horas_Efectivas'] > 0].groupby('Equipo')['Fecha reporte'].nunique().reset_index()
+        df_trabajados.rename(columns={'Fecha reporte': 'Días Trabajados'}, inplace=True)
+        
+        # 2. Calcular días inactivos totales (horas == 0)
+        df_inactivos_totales = df[df['Horas_Efectivas'] == 0].groupby('Equipo')['Fecha reporte'].nunique().reset_index()
+        df_inactivos_totales.rename(columns={'Fecha reporte': 'Total Días Inactivos'}, inplace=True)
+        
+        # 3. Desglosar los motivos de inactividad convirtiéndolos en columnas
+        df_motivos = df[df['Horas_Efectivas'] == 0].groupby(['Equipo', 'Estado_Equipo'])['Fecha reporte'].nunique().unstack(fill_value=0).reset_index()
+        
+        # 4. Unir toda la información
+        resumen_facturacion = pd.merge(df_trabajados, df_inactivos_totales, on='Equipo', how='outer').fillna(0)
+        
+        if not df_motivos.empty:
+            resumen_facturacion = pd.merge(resumen_facturacion, df_motivos, on='Equipo', how='outer').fillna(0)
+            
+        # 5. Formatear los números para que no salgan con decimales (.0)
+        for col in resumen_facturacion.columns:
+            if col != 'Equipo':
+                resumen_facturacion[col] = resumen_facturacion[col].astype(int)
+                
+        # Calcular el total de días evaluados por máquina
+        resumen_facturacion.insert(1, 'Total Días Mes', resumen_facturacion['Días Trabajados'] + resumen_facturacion['Total Días Inactivos'])
+        
+        # Mostrar la tabla en la app
+        st.dataframe(resumen_facturacion, use_container_width=True)
+        
+        # Botón para descargar a Excel/CSV
+        csv_facturacion = resumen_facturacion.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Descargar Resumen para Facturación (CSV)",
+            data=csv_facturacion,
+            file_name='resumen_facturacion_maquinaria.csv',
+            mime='text/csv',
+        )
+
     # Detalle de Trabajador vs Equipo
+    st.markdown("---")
     st.subheader("Detalle: ¿Qué trabajador está usando qué equipo?")
     
-    # Asegurarnos de que las columnas existan antes de mostrarlas para evitar errores
     columnas_vista = ['Equipo', 'Estado_Equipo', 'RUT', 'Nombre', 'Cargo', 'Horas_Efectivas', 'Observaciones']
     if 'Nombre Centro Costo 1' in df.columns:
         columnas_vista.insert(6, 'Nombre Centro Costo 1')
