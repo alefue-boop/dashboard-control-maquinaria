@@ -1,8 +1,11 @@
-# Dashboard de Control y Gestión de Maquinaria 🚜
+# Auditoría de Consumo de Combustible - Equipos CD
+Este script analiza la coherencia entre los kilómetros reportados y los litros de combustible extraídos de las observaciones de la flota.
 
-Aplicación desarrollada en Streamlit para unificar reportes diarios de maquinaria con la base de datos de trabajadores. 
+## Colores Corporativos
+- **Burdeo**: Alertas de bajo rendimiento / Errores críticos.
+- **Verde**: Rendimiento óptimo.
+- **Gris**: Promedio de flota / Datos neutros.
 
-## Características
-* Cruce automático de Operadores (RUT) con Trabajadores.
-* Auditoría de estados de equipos (Operativo, Panne, Revisión Técnica, Estacionada).
-* Cálculo de horas efectivas trabajadas por unidad de negocio.
+## Requisitos
+- Python 3.x
+- pandas, matplotlib, seaborn
