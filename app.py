@@ -140,7 +140,6 @@ if report_file and empleados_file:
         if 'Estado_Equipo' in df.columns:
             estado_counts = df['Estado_Equipo'].value_counts().reset_index()
             estado_counts.columns = ['Estado', 'Cantidad']
-            # Aplicar colores corporativos al gráfico de torta
             fig_estado = px.pie(estado_counts, names='Estado', values='Cantidad', 
                                 title='Distribución de Estados de Maquinaria', hole=0.4,
                                 color_discrete_sequence=colores_corporativos)
@@ -149,7 +148,6 @@ if report_file and empleados_file:
     with colB:
         if 'Equipo' in df.columns and 'Horas_Efectivas' in df.columns:
             horas_por_equipo = df.groupby('Equipo')['Horas_Efectivas'].sum().reset_index().sort_values(by='Horas_Efectivas', ascending=False).head(15)
-            # Aplicar color Burdeo a las barras
             fig_horas = px.bar(horas_por_equipo, x='Horas_Efectivas', y='Equipo', orientation='h', 
                                title='Top 15 Equipos con Más Horas Efectivas', text='Horas_Efectivas',
                                color_discrete_sequence=['#800020'])
@@ -217,4 +215,65 @@ if report_file and empleados_file:
                 anomalias = []
                 if row['KM_Recorridos'] < 0: anomalias.append("Error Odómetro")
                 if row['KM_Recorridos'] > 500: anomalias.append("Exceso KM (>500)")
-                if row['Cantidad (Ingreso Combustible)'] > 0 and row['KM_Recorridos']
+                if row['Cantidad (Ingreso Combustible)'] > 0 and row['KM_Recorridos'] == 0: anomalias.append("Carga sin movimiento")
+                if row['Cantidad (Ingreso Combustible)'] > 0 and row['KM_Recorridos'] > 0:
+                    if row['Rendimiento (KM/L)'] < 5: anomalias.append("Rendimiento crítico (< 5 KM/L)")
+                    elif row['Rendimiento (KM/L)'] > 15: anomalias.append("Rendimiento irreal (> 15 KM/L)")
+                if row['KM. Inicial'] == 0 and row['KM. Final'] == 0 and row['Horas_Efectivas'] > 0: anomalias.append("Trabajó sin registrar KM")
+                return " | ".join(anomalias) if anomalias else "OK"
+
+            df_cd['Alerta_Auditoria'] = df_cd.apply(clasificar_anomalia, axis=1)
+
+            c_cd1, c_cd2, c_cd3, c_cd4 = st.columns(4)
+            c_cd1.metric("Total Camionetas", df_cd['Equipo'].nunique())
+            c_cd2.metric("Total KM Recorridos", f"{df_cd['KM_Recorridos'].sum():,.0f}")
+            c_cd3.metric("Total Litros Combustible", f"{df_cd['Cantidad (Ingreso Combustible)'].sum():,.1f}")
+            total_km = df_cd['KM_Recorridos'].sum()
+            total_lts = df_cd['Cantidad (Ingreso Combustible)'].sum()
+            rendimiento_global = total_km / total_lts if total_lts > 0 else 0
+            c_cd4.metric("Rendimiento Flota (KM/L)", f"{rendimiento_global:.1f}")
+
+            df_anomalias = df_cd[df_cd['Alerta_Auditoria'] != "OK"]
+            st.markdown(f"**⚠️ Alertas Detectadas ({len(df_anomalias)} registros anómalos)**")
+            
+            if not df_anomalias.empty:
+                cols_mostrar = ['Fecha reporte', 'Equipo', 'Operador_clean', 'Nombre', 'KM. Inicial', 'KM. Final', 'KM_Recorridos', 'Cantidad (Ingreso Combustible)', 'Rendimiento (KM/L)', 'Alerta_Auditoria']
+                cols_mostrar = [c for c in cols_mostrar if c in df_anomalias.columns]
+                
+                st.dataframe(df_anomalias[cols_mostrar].sort_values('Fecha reporte', ascending=False), use_container_width=True)
+            else:
+                st.success("Sin anomalías en la flota CD.")
+
+            st.markdown("**Análisis Gráfico: Recorrido vs Consumo**")
+            resumen_grafico = df_cd.groupby('Equipo').agg({
+                'KM_Recorridos': 'sum',
+                'Cantidad (Ingreso Combustible)': 'sum'
+            }).reset_index()
+            
+            fig_scatter = px.scatter(resumen_grafico, x='KM_Recorridos', y='Cantidad (Ingreso Combustible)', 
+                                     text='Equipo', size='Cantidad (Ingreso Combustible)', 
+                                     title='Relación KM Recorridos vs Litros Cargados',
+                                     color_discrete_sequence=['#2E7D32'])
+            fig_scatter.update_traces(textposition='top center')
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
+        else:
+            st.info("No hay registros de camionetas ('CD').")
+
+    # Detalle General
+    st.markdown("---")
+    st.subheader("Detalle General: ¿Qué trabajador está usando qué equipo?")
+    
+    columnas_vista = ['Equipo', 'Estado_Equipo', 'RUT', 'Nombre', 'Cargo', 'Horas_Efectivas', 'Observaciones']
+    if 'Nombre Centro Costo 1' in df.columns:
+        columnas_vista.insert(6, 'Nombre Centro Costo 1')
+        
+    columnas_existentes = [col for col in columnas_vista if col in df.columns]
+    
+    if 'Equipo' in df.columns:
+        st.dataframe(df[columnas_existentes].sort_values(by=['Equipo']), use_container_width=True)
+    else:
+        st.dataframe(df[columnas_existentes], use_container_width=True)
+    
+else:
+    st.info("Por favor, sube ambos archivos en el panel izquierdo para comenzar el análisis y ver el Dashboard.")
