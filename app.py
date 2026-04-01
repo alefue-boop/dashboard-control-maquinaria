@@ -86,7 +86,6 @@ def cargar_datos(report_file, empleados_file, estructura_file):
     
     # CONSERVACIÓN EXACTA DEL NOMBRE Y APELLIDO
     if 'Nombre' in merged_df.columns:
-        # Pone mayúsculas formales (Ej: Moya Hernandez Wladimir)
         merged_df['Trabajador (Nombre y Apellidos)'] = merged_df['Nombre'].fillna("Sin Registro en RRHH").astype(str).str.title().str.strip()
     else:
         merged_df['Trabajador (Nombre y Apellidos)'] = "Sin Registro en RRHH"
@@ -139,7 +138,11 @@ if report_file and empleados_file and estructura_file:
         df = cargar_datos(report_file, empleados_file, estructura_file)
         
     st.sidebar.header("Filtros Globales")
-    unidades_disponibles = sorted(df['Unidad_Negocio'].astype(str).unique().tolist())
+    
+    # --- CORRECCIÓN APLICADA AQUÍ: ORDENAMIENTO SEGURO ---
+    unidades_disponibles = [str(u) for u in df['Unidad_Negocio'].unique() if pd.notna(u)]
+    unidades_disponibles.sort()
+    
     unidad_seleccionada = st.sidebar.multiselect("Unidad de Negocio (Obra/Faena):", unidades_disponibles, default=unidades_disponibles)
     
     if unidad_seleccionada:
@@ -273,7 +276,6 @@ if report_file and empleados_file and estructura_file:
     st.markdown("---")
     st.subheader("Base Consolidada: Trazabilidad Operador vs Equipo")
     
-    # Se reemplaza "Nombre" por la columna limpia y blindada
     columnas_vista = ['Fecha reporte', 'Unidad_Negocio', 'Equipo', 'Estado_Equipo', 'Operador_clean', 'Trabajador (Nombre y Apellidos)', 'Cargo', 'Horas_Efectivas', 'Observaciones']
     columnas_existentes = [col for col in columnas_vista if col in df.columns]
     
